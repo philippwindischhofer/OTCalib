@@ -25,7 +25,7 @@ from itertools import product
 
 from otcalibutils import *
 
-nbatches = 2**10
+nbatches = 500
 nepochs = 200
 
 # some global settings for the logging
@@ -37,8 +37,9 @@ length_MC = 10000
 
 # some global settings pertaining to the models
 activation = nn.LeakyReLU
+#activation = nn.Tanh
 adversary_lr = 5e-3
-transport_lr = 1e-3
+transport_lr = 1e-4
 lr_decay = 0.98
 
 # some global settings for the training
@@ -131,7 +132,6 @@ for epoch in range(nepochs):
         transporting = trans(transport, mc)
         transported = transporting + mc
 
-        
         fake = adversary(transported)
 
         tmp2 =\
@@ -162,5 +162,5 @@ for epoch in range(nepochs):
     writer.add_scalar('fakeavg', fakeavg / nbatches, epoch)
 
     # make debug plots in each epoch to follow along
-    detailed_plots(transport, writer, epoch, device)
+    detailed_plots(transport, adversary, writer, epoch, device)
     

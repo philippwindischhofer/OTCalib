@@ -49,9 +49,15 @@ def genMC(n, device):
 
 def genData(n, device):
 
+  # from Gaussian
   stdev = 1
   mean = 2
   samples = torch.randn(n, device = device) * stdev + mean
+
+  # # from uniform distribution
+  # start = 2
+  # end = 4
+  # samples = torch.rand(n, device = device) * (end - start) + start
 
   return torch.unsqueeze(samples, 1)
 
@@ -135,14 +141,14 @@ def tonp(xs):
   return xs.cpu().detach().numpy()
 
 
-def detailed_plots(transport, writer, epoch, device):
+def detailed_plots(transport, adversary, writer, epoch, device):
 
   # -----------------------------------------------
   # make closure plot to check that transported MC
   # indeed matches the data
   # -----------------------------------------------
 
-  length_data = 1000
+  length_data = 10000
   toy_MC = genMC(length_data, device)
   toy_data = genData(length_data, device)
 
@@ -170,256 +176,19 @@ def detailed_plots(transport, writer, epoch, device):
   writer.add_figure("transport function", fig, global_step = epoch)
   plt.close()
 
-def plotPtTheta(transport, predict, targ, nps, writer, label, title, epoch, device, nmax=-1):
+  # -----------------------------------------------
+  # plot the output delivered by the adversary
+  # -----------------------------------------------
 
-  target = tonp(targ)
-  prediction = tonp(predict)
+  xvals = torch.unsqueeze(torch.linspace(-4.0, 4.0, 1000), 1)
+  yvals = tonp(adversary(xvals))
 
-  zeros = torch.zeros((predict.size()[0], nps), device=device)
+  fig = plt.figure()
+  ax = fig.add_subplot(111)
+  ax.plot(xvals, yvals)
 
-  thetas = zeros.clone()
-  transporting = trans(transport, predict, thetas)
-  nomtrans = tonp(transporting)
-  nom = tonp(transporting + predict[:,0:1])
-
-  postrans = []
-  negtrans = []
-  pos = []
-  neg = []
-
-  if nmax < 0:
-    nmax = predict.size()[0]
-
-
-  for i in range(nps):
-    thetas = zeros.clone()
-    thetas[:,i] = 1
-    transporting = trans(transport, predict, thetas)
-    postrans.append(tonp(transporting))
-    pos.append(tonp(transporting + predict[:,0:1])[:,0])
-
-    thetas = zeros.clone()
-    thetas[:,i] = -1
-    transporting = trans(transport, predict, thetas)
-    negtrans.append(tonp(transporting))
-    neg.append(tonp(transporting + predict[:,0:1])[:,0])
-
-
-  del thetas, transporting, targ, predict
-
-  rangex = (0, 4)
-  rangey = (-1, 1)
-  nbins = 20
-  binw = 4.0 / nbins
-
-  h, b, _ = \
-    plt.hist(
-        [prediction[:,0], nom[:,0], target[:,0]]
-      , bins = np.arange(nbins) * binw
-      , range=rangex
-      , label=["original prediction", "transported prediction", "target"]
-      , density=True
-      )
-
-  htmp, _, _ = \
-    plt.hist(
-      target[:,0]
-    , bins=b
-    , range=rangex
-    , density=False
-    )
-
-  targuncerts = np.sqrt(htmp) / np.sum(htmp) / binw
-
-  hpred = h[0]
-  htrans = h[1]
-  htarg = h[2]
-
-
-  hpos, _, _ = \
-    plt.hist(
-      pos
-    , bins=b
-    , range=rangex
-    , density=True
-    )
-
-  hneg, _, _ = \
-    plt.hist(
-      neg
-    , bins=b
-    , range=rangex
-    , density=True
-    )
-
+  writer.add_figure("adversary output", fig, global_step = epoch)
   plt.close()
-
-
-  # numpy is a total pile of crap.
-  # if the number of nps is one, then e.g. "hpos" is a list of bin
-  # counts
-  # if the number of nps is anything else, then e.g. "hpos" is a list
-  # of list of bin counts.
-
-  if nps == 1:
-    hpos = [hpos]
-    hneg = [hneg]
-
-  cols = ["green", "orange", "magenta", "blue"]
-
-
-  fig = plt.figure(figsize=(6, 6))
-
-  for i in range(len(hpos)):
-    hup = hpos[i]
-    hdown = hneg[i]
-
-    (xs, ys) = histcurve(b, hup, 0)
-    plt.plot(xs, ys, linewidth=1, color=cols[i], alpha=0.5, label="$\\theta_%d$ variation" % i)
-
-    (xs, ys) = histcurve(b, hdown, 0)
-    plt.plot(xs, ys, linewidth=1, color=cols[i], alpha=0.5)
-
-
-  (xs, ys) = histcurve(b, htrans, 0)
-  plt.plot(xs, ys, linewidth=2, color="black", label="transported prediction")
-
-
-  (xs, ys) = histcurve(b, hpred, 0)
-  plt.plot(
-      xs
-    , ys
-    , linewidth=2
-    , color="red"
-    , linestyle="dashed"
-    , label="original prediction"
-    )
-
-
-  plt.errorbar(
-      (b[:-1] + b[1:]) / 2.0
-    , htarg
-    , label="target"
-    , color='black'
-    , linewidth=0
-    , yerr=targuncerts
-    , fmt='o'
-    , ecolor='black'
-    , elinewidth=1
-    )
-
-  plt.title(title)
-  plt.xlim(rangex)
-  plt.ylim(0, 1.5)
-  plt.xlabel("discriminant")
-  plt.ylabel("event density")
-  plt.legend()
-
-  writer.add_figure("hist_%s" % label, fig, global_step=epoch)
-  plt.close()
-
-
-
-  fig = plt.figure(figsize=(6, 6))
-
-  plt.plot((rangex[0], rangex[1]), (1, 1), color='black', linewidth=1, alpha=0.5)
-
-
-  for i in range(len(hpos)):
-    hup = hpos[i] / htrans
-    hdown = hneg[i] / htrans
-
-    (xs, ys) = histcurve(b, hup, 0)
-    plt.plot(xs, ys, linewidth=2, color=cols[i], alpha=0.5)
-
-    (xs, ys) = histcurve(b, hdown, 0)
-    plt.plot(xs, ys, linewidth=2, color=cols[i], alpha=0.5)
-
-
-  (xs, ys) = histcurve(b, hpred / htrans, 1)
-  plt.plot(
-      xs
-    , ys
-    , label="original prediction"
-    , linewidth=3
-    , color="red"
-    , linestyle="dashed"
-    )
-
-  plt.errorbar(
-      (b[:-1] + b[1:]) / 2.0
-    , htarg / htrans
-    , label="target"
-    , color='black'
-    , linewidth=0
-    , yerr = targuncerts / htrans
-    , fmt='o'
-    , ecolor='black'
-    , elinewidth=1
-    )
-
-
-  plt.title(title)
-  plt.ylim(0.5, 1.5)
-  plt.xlim(0, 4)
-  plt.xlabel("discriminant")
-  plt.ylabel("ratio to transported prediction")
-  plt.legend()
-
-  writer.add_figure("ratio_%s" % label, fig, global_step=epoch)
-  plt.close()
-
-
-
-  fig = plt.figure(figsize=(6, 6))
-
-  plt.plot((rangex[0], rangex[1]), (0, 0), color='black', linewidth=1, alpha=0.5)
-
-  for (i, ys) in enumerate(postrans):
-    _ = \
-      plt.scatter(
-          prediction[:nmax,0]
-        , ys[:nmax]
-        , c=cols[i]
-        , marker='.'
-        , alpha=0.5
-        , label="$\\theta_%d$ variation" % i
-      )
-
-  for (i, ys) in enumerate(negtrans):
-    _ = \
-      plt.scatter(
-          prediction[:nmax,0]
-        , ys[:nmax]
-        , c=cols[i]
-        , marker='.'
-        , alpha=0.5
-      )
-
-
-  _ =  \
-    plt.scatter(
-        prediction[:nmax,0]
-      , nomtrans[:nmax]
-      , c="black"
-      , marker='.'
-      , label='nominal transport'
-    )
-
-
-
-  plt.xlim(rangex)
-  plt.ylim(rangey)
-  plt.title(title)
-  plt.xlabel("original predicted discriminant")
-  plt.ylabel("transport vector")
-  plt.legend()
-
-  writer.add_figure("transport_%s" % label, fig, global_step=epoch)
-  plt.close()
-
-  return
-
 
 
 def trans(transport, mc):
