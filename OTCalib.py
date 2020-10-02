@@ -3,10 +3,11 @@
 
 
 outprefix = 'test/'
-device='cuda'
+device='cpu'
 
-# TODO
-# I don't know how many of these imports are strictly necessary.
+# set number of threads to e used by torch
+import os
+os.environ["OMP_NUM_THREADS"] = "4"
 
 import numpy as np
 import matplotlib    
@@ -14,7 +15,6 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt    
 import torch
 from math import e
-
 
 import torch.nn as nn
 from collections import OrderedDict
