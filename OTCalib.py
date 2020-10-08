@@ -54,8 +54,8 @@ controlplots(int(1e6))
 alldata = genData(length_data, device)
 allmc = genMC(length_MC, device)
 
-transport = fullyConnected(number_layers = 2, number_inputs = 1, number_outputs = 1, hidden_units = 15, activation = activation)
-adversary = fullyConnected(number_layers = 2, number_inputs = 1, number_outputs = 1, hidden_units = 15, activation = activation)
+transport = fullyConnected(number_layers = 4, number_inputs = 1, number_outputs = 1, hidden_units = 35, activation = activation)
+adversary = fullyConnected(number_layers = 4, number_inputs = 1, number_outputs = 1, hidden_units = 35, activation = activation)
 
 transport.to(device)
 adversary.to(device)
@@ -84,50 +84,64 @@ for epoch in range(nepochs):
 
     for batch in range(nbatches):
 
+        # --------------------
+        # adversary update
+        # --------------------
+        
+        for cur in range(10):
+
+            # sample from data and MC
+            data = alldata[torch.randint(alldata.size()[0], size=(batchsize,), device=device)]
+            mc = allmc[torch.randint(allmc.size()[0], size=(batchsize,), device=device)]
+            
+            toptim.zero_grad()
+            aoptim.zero_grad()
+            
+            real = adversary(data)
+            realavg += torch.mean(real).item()
+            
+            tmp1 = \
+                binary_cross_entropy_with_logits(
+                    real
+                    , torch.ones_like(real)
+                    , reduction='mean'
+                )
+            
+            radvloss += tmp1.item()
+            
+            # calibrate the MC with the current transport model
+            transporting = trans(transport, mc)
+            transported = transporting + mc
+            
+            fake = adversary(transported)
+            fakeavg += torch.mean(fake).item()
+            
+            tmp2 = \
+                   binary_cross_entropy_with_logits(
+                       fake
+                       , torch.zeros_like(real)
+                       , reduction='mean'
+                   )
+            
+            fadvloss += tmp2.item()
+            
+            # total adversary loss
+            loss = tmp1 + tmp2
+            
+            # train the adversary
+            loss.backward()
+            aoptim.step()
+
+            toptim.zero_grad()
+            aoptim.zero_grad()
+
+        # --------------------
+        # transport network update
+        # --------------------
+
         # sample from data and MC
         data = alldata[torch.randint(alldata.size()[0], size=(batchsize,), device=device)]
         mc = allmc[torch.randint(allmc.size()[0], size=(batchsize,), device=device)]
-
-        toptim.zero_grad()
-        aoptim.zero_grad()
-
-        real = adversary(data)
-        realavg += torch.mean(real).item()
-
-        tmp1 = \
-          binary_cross_entropy_with_logits(
-              real
-            , torch.ones_like(real)
-            , reduction='mean'
-            )
-
-        radvloss += tmp1.item()
-
-        # calibrate the MC with the current transport model
-        transporting = trans(transport, mc)
-        transported = transporting + mc
-
-        fake = adversary(transported)
-        fakeavg += torch.mean(fake).item()
-
-        tmp2 = \
-          binary_cross_entropy_with_logits(
-              fake
-            , torch.zeros_like(real)
-            , reduction='mean'
-            )
-
-        fadvloss += tmp2.item()
-
-        # total adversary loss
-        loss = tmp1 + tmp2
-
-        # train the adversary
-        loss.backward()
-        aoptim.step()
-
-        toptim.zero_grad()
-        aoptim.zero_grad()
 
         transporting = trans(transport, mc)
         transported = transporting + mc
