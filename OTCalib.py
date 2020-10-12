@@ -3,9 +3,10 @@
 
 device='cpu'
 
-# set number of threads to e used by torch
 import os
-os.environ["OMP_NUM_THREADS"] = "4"
+
+# set number of threads to e used by torch
+# os.environ["OMP_NUM_THREADS"] = "4"
 
 import numpy as np
 import matplotlib    
@@ -29,7 +30,9 @@ nbatches = 500
 nepochs = 200
 
 # some global settings for the logging
-outprefix = 'toy_example'
+from time import gmtime, strftime
+time_suffix = strftime("%Y_%m_%d_%H_%M_%S", gmtime())
+outprefix = os.path.join('toy_example', time_suffix)
 
 # some global settings for the dataset
 length_data = 10000
@@ -54,8 +57,8 @@ controlplots(int(1e6))
 alldata = genData(length_data, device)
 allmc = genMC(length_MC, device)
 
-transport = fullyConnected(number_layers = 4, number_inputs = 1, number_outputs = 1, hidden_units = 35, activation = activation)
-adversary = fullyConnected(number_layers = 4, number_inputs = 1, number_outputs = 1, hidden_units = 35, activation = activation)
+transport = fullyConnected(number_layers = 2, number_inputs = 1, number_outputs = 1, hidden_units = 15, activation = activation)
+adversary = fullyConnected(number_layers = 2, number_inputs = 1, number_outputs = 1, hidden_units = 15, activation = activation)
 
 transport.to(device)
 adversary.to(device)
