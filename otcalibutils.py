@@ -40,10 +40,16 @@ def logptData(xs):
   return torch.log(poly([25, 220, 5], -torch.log(xs)))
 
 def genMC(n, device):
-  
-  stdev = 1
-  mean = -2
-  samples = torch.randn(n, device = device) * stdev + mean
+
+  # # form Gaussian
+  # stdev = 1
+  # mean = 0
+  # samples = torch.randn(n, device = device) * stdev + mean
+
+  # from uniform distribution
+  start = -0.95
+  end = 0.95
+  samples = torch.rand(n, device = device) * (end - start) + start
 
   return torch.unsqueeze(samples, 1)
 
@@ -51,12 +57,12 @@ def genData(n, device):
 
   # from Gaussian
   stdev = 1
-  mean = 2
+  mean = 0
   samples = torch.randn(n, device = device) * stdev + mean
 
   # # from uniform distribution
-  # start = 2
-  # end = 4
+  # start = -1
+  # end = 1
   # samples = torch.rand(n, device = device) * (end - start) + start
 
   return torch.unsqueeze(samples, 1)
@@ -92,7 +98,7 @@ def layer(n, m, act):
   return \
     nn.Sequential(
       nn.Linear(n, m)
-    , act(inplace=True)
+    , act()
     )
 
 
@@ -108,7 +114,7 @@ def fullyConnected(number_layers, number_inputs, number_outputs, hidden_units, a
   return \
     nn.Sequential(
       nn.Linear(number_inputs, hidden_units)
-      , activation(inplace=True)
+      , activation()
       , sequential([layer(hidden_units, hidden_units, activation) for i in range(number_layers)])
       , nn.Linear(hidden_units, number_outputs)
     )
@@ -148,7 +154,7 @@ def detailed_plots(transport, adversary, writer, epoch, device):
   # indeed matches the data
   # -----------------------------------------------
 
-  length_data = 10000
+  length_data = 50000
   toy_MC = genMC(length_data, device)
   toy_data = genData(length_data, device)
 
@@ -156,7 +162,7 @@ def detailed_plots(transport, adversary, writer, epoch, device):
 
   fig = plt.figure()
   ax = fig.add_subplot(111)  
-  ax.hist([toy_MC[:, 0], toy_data[:, 0], transported_MC[:, 0]], bins=25, label=["mc", "data", "transported mc"])
+  ax.hist([toy_MC[:, 0], toy_data[:, 0], transported_MC[:, 0]], bins = 25, label=["mc", "data", "transported mc"])
   ax.legend()
 
   writer.add_figure("closure", fig, global_step = epoch)

@@ -27,7 +27,7 @@ from itertools import product
 from otcalibutils import *
 
 nbatches = 500
-nepochs = 200
+nepochs = 1
 
 # some global settings for the logging
 from time import gmtime, strftime
@@ -39,11 +39,11 @@ length_data = 10000
 length_MC = 10000
 
 # some global settings pertaining to the models
-activation = nn.LeakyReLU
-#activation = nn.Tanh
-adversary_lr = 5e-3
-transport_lr = 1e-4
-lr_decay = 0.98
+#activation = nn.LeakyReLU
+activation = nn.Tanh
+adversary_lr = 5e-2
+transport_lr = 3e-2
+lr_decay = 0.94
 
 # some global settings for the training
 batchsize = 1024
@@ -54,11 +54,27 @@ controlplots(int(1e6))
 # start preparing the networks
 # -----------------------------------------------
 
+width = 5
+depth = 5
+
+def init_weights(m):
+    if type(m) == nn.Linear:
+        #torch.nn.init.xavier_uniform(m.weight)
+        abswidth = 4000.0 / np.sqrt((width * depth))
+        torch.nn.init.uniform_(m.weight, a = -abswidth, b = abswidth)
+        m.bias.data.fill_(0.01)
+
 alldata = genData(length_data, device)
 allmc = genMC(length_MC, device)
 
-transport = fullyConnected(number_layers = 2, number_inputs = 1, number_outputs = 1, hidden_units = 15, activation = activation)
-adversary = fullyConnected(number_layers = 2, number_inputs = 1, number_outputs = 1, hidden_units = 15, activation = activation)
+# transport = fullyConnected(number_layers = 5, number_inputs = 1, number_outputs = 1, hidden_units = 55, activation = activation)
+# adversary = fullyConnected(number_layers = 5, number_inputs = 1, number_outputs = 1, hidden_units = 55, activation = activation)
+
+transport = fullyConnected(number_layers = depth, number_inputs = 1, number_outputs = 1, hidden_units = width, activation = activation)
+adversary = fullyConnected(number_layers = depth, number_inputs = 1, number_outputs = 1, hidden_units = width, activation = activation)
+
+transport.apply(init_weights)
+adversary.apply(init_weights)
 
 transport.to(device)
 adversary.to(device)
@@ -91,7 +107,7 @@ for epoch in range(nepochs):
         # adversary update
         # --------------------
         
-        for cur in range(10):
+        for cur in range(1):
 
             # sample from data and MC
             data = alldata[torch.randint(alldata.size()[0], size=(batchsize,), device=device)]
@@ -170,7 +186,14 @@ for epoch in range(nepochs):
     tsched.step()
     asched.step()
 
+    def get_cur_lr(optim):
+        par_groups = optim.param_groups
+        for par_group in par_groups:
+            if "lr" in par_group:
+                return par_group["lr"]
+    
     # write tensorboard info once per epoch
+    writer.add_scalar('cur_lr', get_cur_lr(toptim), epoch)
     writer.add_scalar('radvloss', radvloss / nbatches, epoch)
     writer.add_scalar('fadvloss', fadvloss / nbatches, epoch)
     writer.add_scalar('tadvloss', tadvloss / nbatches, epoch)
