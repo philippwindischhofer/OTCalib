@@ -16,8 +16,8 @@ outdir = "gradient_2d_manifold"
 number_samples_target = 5000
 number_samples_source = 20 * number_samples_target # MC
 
-lr_transport = 7e-5
-lr_critic = 3e-4
+lr_transport = 7e-4
+lr_critic = 3e-3
 
 # lr_transport = 7e-4
 # lr_critic = 3e-3
@@ -26,7 +26,7 @@ lr_critic = 3e-4
 # lr_critic = 2e-3
 
 # critic_updates_per_batch = 10
-critic_updates_per_batch = 2
+critic_updates_per_batch = 20
 
 critic_outputs = 1
 
@@ -354,7 +354,11 @@ def compute_tangent_vector_r_phi(network, source):
     # print("phi = {}".format(source_phi))
     # print("r = {}".format(source_r))    
 
-    output = network(source)
+    source_transf = torch.abs(source)
+    xval, _ = torch.max(source_transf, dim = 1, keepdim = True)
+    yval, _ = torch.min(source_transf, dim = 1, keepdim = True)
+    source_transf = torch.cat([xval, yval], dim = 1)
+    output = network(source_transf)
 
     # print("phi = {}".format(output))
     
@@ -488,7 +492,7 @@ number_outputs = 1 if use_gradient else 2
 # transport_network = build_fully_connected(2, number_outputs, number_hidden_layers = 1, units_per_layer = 30,
 #                                           activation = torch.nn.Tanh)
 
-transport_network = build_fully_connected(2, number_outputs, number_hidden_layers = 4, units_per_layer = 50,
+transport_network = build_fully_connected(2, number_outputs, number_hidden_layers = 2, units_per_layer = 30,
                                           activation = torch.nn.Tanh)
 
 
@@ -496,7 +500,7 @@ transport_network = build_fully_connected(2, number_outputs, number_hidden_layer
 # transport_network[-1].bias.data *= 0.01
 transport_network.to(device)
 
-critic = build_fully_connected(2, critic_outputs, number_hidden_layers = 3, units_per_layer = 50,
+critic = build_fully_connected(2, critic_outputs, number_hidden_layers = 2, units_per_layer = 30,
                                activation = torch.nn.Tanh)
 
 # critic = build_fully_connected(2, critic_outputs, number_hidden_layers = 1, units_per_layer = 30,
@@ -509,7 +513,8 @@ transport_optim = torch.optim.RMSprop(transport_network.parameters(), lr = lr_tr
 adversary_optim = torch.optim.RMSprop(list(critic.parameters()), lr = lr_critic)
 
 def A_scheduler(batch_number):
-    return 1.0 + 2.0 / (1 + np.exp(-batch_number / 2000.0 + 4.0))
+    # return 1.0 + 2.0 / (1 + np.exp(-batch_number / 500.0 + 4.0))
+    return 3.0
 
 for batch in range(50000):
 
