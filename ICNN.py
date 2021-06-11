@@ -118,3 +118,27 @@ class ICNN(torch.nn.Module):
 def smooth_leaky_ReLU(x, a):
     sqrtpi = np.sqrt(np.pi)
     return 0.5 * ((1 - a) * torch.exp(-torch.square(x)) + sqrtpi * x * (1 + torch.erf(x) + a * torch.erfc(x)))
+
+def construct_smooth_circle_arc(a):
+
+    # require: 0 <= a < 1
+
+    sq2 = 2 * np.sqrt(2)
+
+    # compute constants
+    x0 = (1 + 3 * a**2 + sq2 * a * np.sqrt(1 + a**2)) / ((a - 1) * (a + 1))
+    R = (sq2 * np.sqrt(1 + a**2) * np.sqrt(1 + 3 * a**2 + sq2 * a * np.sqrt(1 + a**2))) / ((1 - a) * (1 + a))
+
+    C0 = np.sqrt(R**2 - x0**2) - np.sqrt(R**2 - (1 + x0)**2)
+    C1 = np.sqrt(R**2 - x0**2)
+    C2 = np.sqrt(R**2 - x0**2) - np.sqrt(R**2 - (1 - x0)**2)
+
+    def act(x):
+
+        f0 = a * (x + 1) + C0 # x < -1
+        f1 = C1 - torch.sqrt(R**2 - torch.square(x - x0)) # -1 < x < 1
+        f2 = x - 1 + C2 # x > 1
+
+        return torch.where(x > 1, f2, torch.where(x < -1, f0, f1))
+
+    return act
