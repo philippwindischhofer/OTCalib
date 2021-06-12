@@ -1,9 +1,10 @@
 import torch, os
-from ICNN import ICNN, smooth_leaky_ReLU
+from ICNN import smooth_leaky_ReLU
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import scipy.special
 import functools
+from diagnostics import get_duality_gap
 
 # for plot output
 import matplotlib
@@ -26,6 +27,56 @@ lr_g_func = 1e-3
 batch_size = 1000
 critic_updates_per_batch = 10
 
+# see details at https://arxiv.org/abs/1609.07152
+class ICNN(torch.nn.Module):
+
+    def __init__(self, number_inputs, number_hidden_layers, units_per_layer, activations):
+
+        super(ICNN, self).__init__()
+        
+        self.activations = activations
+        
+        # build all the operations
+        self.bypass_ops = torch.nn.ModuleList([torch.nn.Linear(number_inputs, units_per_layer, bias = True) for cur in range(number_hidden_layers - 1)])
+        self.bypass_ops += [torch.nn.Linear(number_inputs, 1, bias = True)] # the last one is special because it needs to produce a scalar output
+        
+        self.convex_ops = torch.nn.ModuleList([torch.nn.Linear(units_per_layer, units_per_layer, bias = False) for cur in range(number_hidden_layers - 2)])
+        self.convex_ops += [torch.nn.Linear(units_per_layer, 1, bias = False)]
+                                                                    
+    def forward(self, intensor):
+                
+        outtensor = self.bypass_ops[0](intensor)
+        
+        assert len(self.bypass_ops[1:]) == len(self.convex_ops)
+        assert len(self.convex_ops) == len(self.activations)
+        
+        for cur_bypass_op, cur_convex_op, cur_activation in zip(self.bypass_ops[1:], self.convex_ops, self.activations):
+            
+            # apply the activation to the output of the previous layer
+            outtensor = cur_activation(outtensor)
+                
+            # apply the next layer
+            outtensor = cur_convex_op(outtensor) + cur_bypass_op(intensor)
+                
+        return outtensor
+                
+    def enforce_convexity(self):
+                
+        # apply param = max(0, param) = relu(param) to all parameters that need to be nonnegative
+        for cur_convex_op in self.convex_ops:
+            for cur_param in cur_convex_op.parameters():
+                cur_param.data.copy_(torch.relu(cur_param.data))
+                            
+    def get_convexity_regularisation_term(self):
+                                
+        L2_reg = 0.0
+                
+        for cur_convex_op in self.convex_ops:
+            for cur_param in cur_convex_op.parameters():
+                L2_reg += torch.sum(torch.square(torch.relu(-cur_param.data)))
+                    
+        return L2_reg
+                
 def generate_source_square(number_samples, device):
     xvals = 2 * torch.rand((number_samples,), device = device) - 1
     yvals = 2 * torch.rand((number_samples,), device = device) - 1
@@ -191,6 +242,9 @@ for batch in range(50000):
         
         add_network_plot(g_func, "g_func", global_step = batch)
         add_network_plot(f_func, "f_func", global_step = batch)
+
+        duality_gap = get_duality_gap(f_func, g_func, source_data, target_data)
+        writer.add_scalar("duality_gap", duality_gap, global_step = batch)
     
     for cur_g_update in range(critic_updates_per_batch):
 
@@ -206,7 +260,8 @@ for batch in range(50000):
         lag_g = torch.sum(grad_g * source_data_batch, keepdim = True, dim = 1) - f_func(grad_g)
         
         # need to maximise the lagrangian
-        loss_g = torch.mean(-lag_g + g_func.get_convexity_regularisation_term()) # can use a regulariser to keep it close to convexity ...
+        #loss_g = torch.mean(-lag_g + g_func.get_convexity_regularisation_term()) # can use a regulariser to keep it close to convexity ...
+        loss_g = torch.mean(-lag_g)
         loss_g.backward()
         g_func_optim.step()
         #g_func.enforce_convexity() # ... or enforce convexity explicitly
@@ -230,7 +285,7 @@ for batch in range(50000):
     loss_total = torch.mean(lag_total)
     loss_total.backward()
     f_func_optim.step()
-    f_func.enforce_convexity()    
+    # f_func.enforce_convexity()    
         
 writer.close()
 print("done")

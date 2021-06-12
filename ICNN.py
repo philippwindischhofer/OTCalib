@@ -5,8 +5,6 @@ import numpy as np
 class ICNN(torch.nn.Module):
 
     def __init__(self
-        , number_nonconvex_inputs
-        , number_convex_inputs
         , nonconvex_activation
         , convex_activation
         , nonconvex_layersizes
@@ -17,10 +15,10 @@ class ICNN(torch.nn.Module):
 
         assert len(nonconvex_layersizes) + 1 == len(convex_layersizes)
 
-        self.nlayers = len(convex_layersizes) - 1
+        self.nhidden = len(convex_layersizes) - 1
 
-        self.g = [convex_activation for i in range(self.nlayers)]
-        self.gtilde = [nonconvex_activation for i in range(self.nlayers - 1)]
+        self.g = [convex_activation for i in range(self.nhidden)]
+        self.gtilde = [nonconvex_activation for i in range(self.nhidden - 1)]
 
 
         # simple matrix mul
@@ -29,7 +27,7 @@ class ICNN(torch.nn.Module):
 
         # and full linear layer with bias
         def L(x, y):
-            return torch.nn.Linear(x, y)
+            return torch.nn.Linear(x, y, bias=True)
 
 
         # more-or-less following the nomenclature from
@@ -51,14 +49,14 @@ class ICNN(torch.nn.Module):
         Luutilde = []
 
 
-        for lay in range(self.nlayers):
+        for lay in range(self.nhidden):
             Wzz.append(W(zsize[lay], zsize[lay+1]))
             Wyz.append(W(ysize, zsize[lay+1]))
             Luz.append(L(usize[lay], zsize[lay]))
             Luz1.append(L(usize[lay], zsize[lay+1]))
             Luy.append(L(usize[lay], ysize))
 
-        for lay in range(self.nlayers - 1):
+        for lay in range(self.nhidden - 1):
             Luutilde.append(L(usize[lay], usize[lay+1]))
 
 
@@ -79,7 +77,7 @@ class ICNN(torch.nn.Module):
         ui = xs
         zi = torch.zeros_like(ys)
 
-        for i in range(self.nlayers):
+        for i in range(self.nhidden):
             zi = \
               self.g[i](
                   self.Wzz[i](zi * torch.relu(self.Luz[i](ui))) \
@@ -88,7 +86,7 @@ class ICNN(torch.nn.Module):
               )
 
             # no need to update ui the last time through.
-            if i < self.nlayers - 1:
+            if i < self.nhidden - 1:
                 ui = self.gtilde[i](self.Luutilde[i](ui))
 
         return zi
@@ -119,26 +117,30 @@ def smooth_leaky_ReLU(x, a):
     sqrtpi = np.sqrt(np.pi)
     return 0.5 * ((1 - a) * torch.exp(-torch.square(x)) + sqrtpi * x * (1 + torch.erf(x) + a * torch.erfc(x)))
 
-def construct_smooth_circle_arc(a):
+# a piecewise function x0 the changeover point from f to g
+def piecewise(x0, f, g):
+    def h(x):
+        return \
+            torch.heaviside(x0-x, torch.zeros_like(x))*f(x) \
+          + torch.heaviside(x-x0, torch.ones_like(x))*g(x)
+    return h
 
-    # require: 0 <= a < 1
 
-    sq2 = 2 * np.sqrt(2)
+# a polynomial of degree len(cs)-1 with cs as the coefficients
+def poly(cs):
+    def h(x):
+        tot = 0
+        for i in range(len(cs)):
+            tot += cs[i] * x**i
+        return tot
+    return h
 
-    # compute constants
-    x0 = (1 + 3 * a**2 + sq2 * a * np.sqrt(1 + a**2)) / ((a - 1) * (a + 1))
-    R = (sq2 * np.sqrt(1 + a**2) * np.sqrt(1 + 3 * a**2 + sq2 * a * np.sqrt(1 + a**2))) / ((1 - a) * (1 + a))
 
-    C0 = np.sqrt(R**2 - x0**2) - np.sqrt(R**2 - (1 + x0)**2)
-    C1 = np.sqrt(R**2 - x0**2)
-    C2 = np.sqrt(R**2 - x0**2) - np.sqrt(R**2 - (1 - x0)**2)
-
-    def act(x):
-
-        f0 = a * (x + 1) + C0 # x < -1
-        f1 = C1 - torch.sqrt(R**2 - torch.square(x - x0)) # -1 < x < 1
-        f2 = x - 1 + C2 # x > 1
-
-        return torch.where(x > 1, f2, torch.where(x < -1, f0, f1))
-
-    return act
+# a quadratically interpolated leaky relu function
+# with b the slope below zero
+# and b1 the slope above one
+# a quadratic of the form b*x + (b1 - b)/2 * x*x interpolates between them
+def quad_LReLU(b, b1):
+    c = (b1 - b) / 2
+    pospart = piecewise(1, poly([0, b, c]), poly([-c, b1]))
+    return piecewise(0, poly([0, b]), pospart)
